@@ -2,14 +2,12 @@
 
 ## Setup
 
-1. Create a `.env` file:
-
-2. Configure your `.env` file:
+1. Configure your `.env` file:
    ```
    REGISTERED_FILE=your_input_file.json
    ```
    
-3. Run
+2. Run
    ```
    go run main.go
    ```
