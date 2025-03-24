@@ -148,7 +148,9 @@ func main() {
 
 	fmt.Println("Scanning sell orders...")
 	// Make HTTP request to get sell orders
-	resp, err := http.Get("https://lcd.injective.network/cosmwasm/wasm/v1/contract/inj1l9nh9wv24fktjvclc4zgrgyzees7rwdtx45f54/smart/eyJhbGxfc2VsbF9vcmRlcnMiOnt9fQ%3D%3D")
+
+	url := "https://lcd.injective.network/cosmwasm/wasm/v1/contract/inj1l9nh9wv24fktjvclc4zgrgyzees7rwdtx45f54/smart/eyJhbGxfc2VsbF9vcmRlcnMiOnt9fQ%3D%3D"
+	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Printf("Error making HTTP request: %v\n", err)
 		os.Exit(1)
