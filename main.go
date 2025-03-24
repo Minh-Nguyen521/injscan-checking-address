@@ -187,7 +187,7 @@ func main() {
 	var addresses []string
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:10] {
+	for i, row := range sheetData.Values[1:] {
 		if len(row) < 2 {
 			continue
 		}
