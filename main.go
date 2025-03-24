@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 )
 
 var ListNFT = []string{"Injective Quants", "The Ninjas"}
+var ListContractAddress = []string{"inj1vtd54v4jm50etkjepgtnd7lykr79yvvah8gdgw", "inj19ly43dgrr2vce8h02a8nw0qujwhrzm9yv8d75c"}
 
 type SheetData struct {
 	Range          string     `json:"range"`
@@ -18,65 +20,68 @@ type SheetData struct {
 	Values         [][]string `json:"values"`
 }
 
-// func checkBalance(injAddress string) {
+func checkNft(injAddress string) bool {
+	queryMsg := interface{}(map[string]interface{}{
+		"tokens": map[string]interface{}{
+			"owner": injAddress,
+		},
+	})
 
-// }
-
-// func checkTx(injAddress string, apiKey string) bool {
-// 	return false
-// }
-
-func checkNft(injAddress string, apiKey string) bool {
-	// Make API request to check INJ address
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://api.talis.art/tokens/"+injAddress+"?offset=0&limit=100", nil)
+	queryjson, err := json.Marshal(queryMsg)
 	if err != nil {
-		fmt.Printf("Error creating request: %v\n", err)
+		fmt.Printf("Error marshalling query message: %v\n", err)
 		return false
 	}
 
-	req.Header.Add("x-api-key", apiKey)
+	queryBzStr := base64.StdEncoding.EncodeToString(queryjson)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error making request: %v\n", err)
-		return false
-	}
-	defer resp.Body.Close()
+	for _, contractAddress := range ListContractAddress {
+		url := fmt.Sprintf("https://lcd.injective.network/cosmwasm/wasm/v1/contract/%s/smart/%s", contractAddress, queryBzStr)
 
-	// Read and parse response
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading response: %v\n", err)
-		return false
-	}
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Printf("Error making HTTP request: %v\n", err)
+			return false
+		}
+		defer resp.Body.Close()
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		fmt.Printf("Error parsing response: %v\n", err)
-		return false
-	}
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("Error reading response body: %v\n", err)
+			return false
+		}
 
-	if result["tokens"] == nil {
-		return false
-	}
+		var response map[string]interface{}
+		err = json.Unmarshal(body, &response)
+		if err != nil {
+			fmt.Printf("Error parsing JSON: %v\n", err)
+			return false
+		}
 
-	for _, token := range result["tokens"].([]interface{}) {
-		tokenMap := token.(map[string]interface{})
-		family := tokenMap["family"].(map[string]interface{})
-		for _, nft := range ListNFT {
-			if family["name"] == nft {
-				return true
-			}
+		var data map[string]interface{}
+		if response["data"] != nil {
+			data = response["data"].(map[string]interface{})
+		}
+
+		if ids, ok := data["ids"].([]interface{}); ok && len(ids) > 0 {
+			return true
 		}
 	}
 	return false
 }
 
+type SellOrdersResponse struct {
+	Data struct {
+		Orders []struct {
+			Owner           string `json:"owner"`
+			ContractAddress string `json:"contract_address"`
+		} `json:"orders"`
+	} `json:"data"`
+}
+
 func main() {
 
-	fmt.Println("Gmail and INJ Address Scanner - Reading")
-
+	fmt.Println("Starting...")
 	// Get filename from environment variable
 	if err := godotenv.Load(); err != nil {
 		fmt.Printf("Error loading .env file: %v\n", err)
@@ -86,12 +91,6 @@ func main() {
 	filename := os.Getenv("REGISTERED_FILE")
 	if filename == "" {
 		fmt.Println("REGISTERED_FILE not set in .env")
-		os.Exit(1)
-	}
-
-	apiKey := os.Getenv("TALIS_API_KEY")
-	if apiKey == "" {
-		fmt.Println("TALIS_API_KEY not set in .env")
 		os.Exit(1)
 	}
 
@@ -115,10 +114,6 @@ func main() {
 		fmt.Println("No data found in the sheet")
 		os.Exit(1)
 	}
-	totalRecords := len(sheetData.Values) - 1
-
-	fmt.Println("\nScanning registered addresses:")
-	fmt.Println("------------------------------------")
 
 	// Create a file to store results
 	resultsFile := "results.json"
@@ -151,35 +146,65 @@ func main() {
 		}
 	}
 
+	fmt.Println("Scanning sell orders...")
+	// Make HTTP request to get sell orders
+	resp, err := http.Get("https://lcd.injective.network/cosmwasm/wasm/v1/contract/inj1l9nh9wv24fktjvclc4zgrgyzees7rwdtx45f54/smart/eyJhbGxfc2VsbF9vcmRlcnMiOnt9fQ%3D%3D")
+	if err != nil {
+		fmt.Printf("Error making HTTP request: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading response body: %v\n", err)
+		os.Exit(1)
+	}
+
+	var response SellOrdersResponse
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		fmt.Printf("Error parsing JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	sellOrders := make(map[string]string)
+
+	for _, order := range response.Data.Orders {
+		sellOrders[order.Owner] = order.ContractAddress
+	}
+
 	var addresses []string
 
+	fmt.Println("Scanning nft and sell orders...")
 	for _, row := range sheetData.Values[1:] {
 		if len(row) < 2 {
 			continue
 		}
 
-		// email := row[0]
 		injAddress := row[1]
 
-		// check balance of injAddress
-
-		// check tx of injAddress
-		// tx := checkTx(injAddress, apiKey)
-		// if tx {
-		// 	fmt.Println("TX found - ", injAddress)
-		// 	addresses = append(addresses, injAddress)
-		// 	continue
-		// }
-
-		// check nft of injAddress
-		nft := checkNft(injAddress, apiKey)
-		if nft {
-			fmt.Println("NFT found - ", injAddress)
-			addresses = append(addresses, injAddress)
+		// check sell orders of injAddress
+		if _, ok := sellOrders[injAddress]; ok {
+			var flag bool = false
+			for _, contractAddress := range ListContractAddress {
+				if sellOrders[injAddress] == contractAddress {
+					addresses = append(addresses, injAddress)
+					flag = true
+					break
+				}
+			}
+			if flag {
+				continue
+			}
 		}
 
-		// fmt.Printf("\nAddress: %s\n", injAddress)
-		// fmt.Printf("Response:\n%s\n", pretty.Pretty(body))
+		// check nft of injAddress
+		nft := checkNft(injAddress)
+		if nft {
+			addresses = append(addresses, injAddress)
+		}
 	}
 
 	// Write results to file
@@ -190,6 +215,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("\nSummary:")
-	fmt.Printf("Total records scanned: %d\n", totalRecords)
+	fmt.Println("Done")
 }
