@@ -13,3 +13,7 @@
    ```
    go run main.go
    ```
+
+## Result
+
+   Result will be in result.json
