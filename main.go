@@ -21,7 +21,7 @@ type SheetData struct {
 	Values         [][]string `json:"values"`
 }
 
-func checkNft(injAddress string) bool {
+func checkNft(injAddress string, rpcUrl string) bool {
 	queryMsg := interface{}(map[string]interface{}{
 		"tokens": map[string]interface{}{
 			"owner": injAddress,
@@ -37,7 +37,7 @@ func checkNft(injAddress string) bool {
 	queryBzStr := base64.StdEncoding.EncodeToString(queryjson)
 
 	for _, contractAddress := range ListContractAddress {
-		url := fmt.Sprintf("https://lcd.injective.network/cosmwasm/wasm/v1/contract/%s/smart/%s", contractAddress, queryBzStr)
+		url := fmt.Sprintf("%s/cosmwasm/wasm/v1/contract/%s/smart/%s", rpcUrl, contractAddress, queryBzStr)
 
 		resp, err := http.Get(url)
 		if err != nil {
@@ -92,6 +92,12 @@ func main() {
 	filename := os.Getenv("REGISTERED_FILE")
 	if filename == "" {
 		fmt.Println("REGISTERED_FILE not set in .env")
+		os.Exit(1)
+	}
+
+	rpcUrl := os.Getenv("RPC_URL")
+	if rpcUrl == "" {
+		fmt.Println("RPC_URL not set in .env")
 		os.Exit(1)
 	}
 
@@ -150,7 +156,7 @@ func main() {
 	fmt.Println("Scanning sell orders...")
 	// Make HTTP request to get sell orders
 
-	url := "https://lcd.injective.network/cosmwasm/wasm/v1/contract/inj1l9nh9wv24fktjvclc4zgrgyzees7rwdtx45f54/smart/eyJhbGxfc2VsbF9vcmRlcnMiOnt9fQ%3D%3D"
+	url := fmt.Sprintf("%s/cosmwasm/wasm/v1/contract/inj1l9nh9wv24fktjvclc4zgrgyzees7rwdtx45f54/smart/eyJhbGxfc2VsbF9vcmRlcnMiOnt9fQ==", rpcUrl)
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Printf("Error making HTTP request: %v\n", err)
@@ -181,7 +187,7 @@ func main() {
 	var addresses []string
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[1:10] {
 		if len(row) < 2 {
 			continue
 		}
@@ -204,7 +210,7 @@ func main() {
 		}
 
 		// check nft of injAddress
-		nft := checkNft(injAddress)
+		nft := checkNft(injAddress, rpcUrl)
 		if nft {
 			addresses = append(addresses, injAddress)
 		}
