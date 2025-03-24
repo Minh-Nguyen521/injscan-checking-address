@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -180,7 +181,7 @@ func main() {
 	var addresses []string
 
 	fmt.Println("Scanning nft and sell orders...")
-	for _, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[1:] {
 		if len(row) < 2 {
 			continue
 		}
@@ -206,6 +207,10 @@ func main() {
 		nft := checkNft(injAddress)
 		if nft {
 			addresses = append(addresses, injAddress)
+		}
+
+		if i%5 == 0 {
+			time.Sleep(1 * time.Second)
 		}
 	}
 
