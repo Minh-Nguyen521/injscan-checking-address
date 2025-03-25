@@ -21,7 +21,7 @@ type SheetData struct {
 	Values         [][]string `json:"values"`
 }
 
-func checkNft(injAddress string, rpcUrl string) bool {
+func checkNft(injAddress string, rpcUrl string) []string {
 	queryMsg := interface{}(map[string]interface{}{
 		"tokens": map[string]interface{}{
 			"owner": injAddress,
@@ -31,32 +31,33 @@ func checkNft(injAddress string, rpcUrl string) bool {
 	queryjson, err := json.Marshal(queryMsg)
 	if err != nil {
 		fmt.Printf("Error marshalling query message: %v\n", err)
-		return false
+		return []string{}
 	}
 
 	queryBzStr := base64.StdEncoding.EncodeToString(queryjson)
 
-	for _, contractAddress := range ListContractAddress {
+	var nft []string
+	for i, contractAddress := range ListContractAddress {
 		url := fmt.Sprintf("%s/cosmwasm/wasm/v1/contract/%s/smart/%s", rpcUrl, contractAddress, queryBzStr)
 
 		resp, err := http.Get(url)
 		if err != nil {
 			fmt.Printf("Error making HTTP request: %v\n", err)
-			return false
+			return []string{}
 		}
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Printf("Error reading response body: %v\n", err)
-			return false
+			return []string{}
 		}
 
 		var response map[string]interface{}
 		err = json.Unmarshal(body, &response)
 		if err != nil {
 			fmt.Printf("Error parsing JSON: %v\n", err)
-			return false
+			return []string{}
 		}
 
 		var data map[string]interface{}
@@ -65,10 +66,10 @@ func checkNft(injAddress string, rpcUrl string) bool {
 		}
 
 		if ids, ok := data["ids"].([]interface{}); ok && len(ids) > 0 {
-			return true
+			nft = append(nft, ListNFT[i])
 		}
 	}
-	return false
+	return nft
 }
 
 type SellOrdersResponse struct {
@@ -124,11 +125,6 @@ func main() {
 
 	// Create a file to store results
 	resultsFile := "results.json"
-	results := struct {
-		Addresses []string `json:"addresses"`
-	}{
-		Addresses: make([]string, 0),
-	}
 
 	// Remove existing file if it exists
 	if _, err := os.Stat(resultsFile); err == nil {
@@ -145,13 +141,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer f.Close()
-
-	// Extract just the addresses from data
-	for _, row := range sheetData.Values[1:] {
-		if len(row) >= 2 {
-			results.Addresses = append(results.Addresses, row[1])
-		}
-	}
 
 	fmt.Println("Scanning sell orders...")
 	// Make HTTP request to get sell orders
@@ -184,10 +173,13 @@ func main() {
 		sellOrders[order.Owner] = order.ContractAddress
 	}
 
-	var addresses []string
+	var data struct {
+		Addresses []string   `json:"addresses"`
+		NFTs      [][]string `json:"nfts"`
+	}
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[1:10] {
 		if len(row) < 2 {
 			continue
 		}
@@ -197,9 +189,10 @@ func main() {
 		// check sell orders of injAddress
 		if _, ok := sellOrders[injAddress]; ok {
 			var flag bool = false
-			for _, contractAddress := range ListContractAddress {
+			for i, contractAddress := range ListContractAddress {
 				if sellOrders[injAddress] == contractAddress {
-					addresses = append(addresses, injAddress)
+					data.Addresses = append(data.Addresses, injAddress)
+					data.NFTs = append(data.NFTs, []string{injAddress, ListNFT[i]})
 					flag = true
 					break
 				}
@@ -211,8 +204,9 @@ func main() {
 
 		// check nft of injAddress
 		nft := checkNft(injAddress, rpcUrl)
-		if nft {
-			addresses = append(addresses, injAddress)
+		if len(nft) > 0 {
+			data.Addresses = append(data.Addresses, injAddress)
+			data.NFTs = append(data.NFTs, nft)
 		}
 
 		if i%5 == 0 {
@@ -223,7 +217,7 @@ func main() {
 	// Write results to file
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("", "    ")
-	if err := encoder.Encode(addresses); err != nil {
+	if err := encoder.Encode(data); err != nil {
 		fmt.Printf("Error writing results: %v\n", err)
 		os.Exit(1)
 	}
