@@ -12,7 +12,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-var ListNFT = []string{"Injective Quants", "The Ninjas"}
+var ListNFT = []string{"quant", "ninja"}
 var ListContractAddress = []string{"inj1vtd54v4jm50etkjepgtnd7lykr79yvvah8gdgw", "inj19ly43dgrr2vce8h02a8nw0qujwhrzm9yv8d75c"}
 
 type SheetData struct {
@@ -167,50 +167,61 @@ func main() {
 		os.Exit(1)
 	}
 
-	sellOrders := make(map[string]string)
+	sellOrders := make(map[string][]string)
 
 	for _, order := range response.Data.Orders {
-		sellOrders[order.Owner] = order.ContractAddress
+		sellOrders[order.Owner] = append(sellOrders[order.Owner], order.ContractAddress)
 	}
 
-	var data struct {
-		Addresses []string   `json:"addresses"`
-		NFTs      [][]string `json:"nfts"`
+	type AddressNFTs struct {
+		Addresses string   `json:"addresses"`
+		NFTs      []string `json:"nfts"`
 	}
+
+	var data []AddressNFTs
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:10] {
+	for i, row := range sheetData.Values[1:100] {
 		if len(row) < 2 {
 			continue
 		}
 
 		injAddress := row[1]
 
-		// check sell orders of injAddress
-		if _, ok := sellOrders[injAddress]; ok {
-			var flag bool = false
-			for i, contractAddress := range ListContractAddress {
-				if sellOrders[injAddress] == contractAddress {
-					data.Addresses = append(data.Addresses, injAddress)
-					data.NFTs = append(data.NFTs, []string{injAddress, ListNFT[i]})
-					flag = true
-					break
+		listNft := make(map[string]bool)
+		// Check sell orders
+		if orders, hasOrders := sellOrders[injAddress]; hasOrders {
+			for i, contractAddr := range ListContractAddress {
+				for _, sellOrder := range orders {
+					if sellOrder == contractAddr {
+						listNft[ListNFT[i]] = true
+						break
+					}
 				}
-			}
-			if flag {
-				continue
 			}
 		}
 
-		// check nft of injAddress
-		nft := checkNft(injAddress, rpcUrl)
-		if len(nft) > 0 {
-			data.Addresses = append(data.Addresses, injAddress)
-			data.NFTs = append(data.NFTs, nft)
+		// Check NFT ownership
+		if nfts := checkNft(injAddress, rpcUrl); len(nfts) > 0 {
+			for _, nft := range nfts {
+				listNft[nft] = true
+			}
+		}
+
+		var nftList []string
+		if len(listNft) > 0 {
+			for nft := range listNft {
+				nftList = append(nftList, nft)
+			}
+
+			data = append(data, AddressNFTs{
+				Addresses: injAddress,
+				NFTs:      nftList,
+			})
 		}
 
 		if i%5 == 0 {
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Second)
 		}
 	}
 
