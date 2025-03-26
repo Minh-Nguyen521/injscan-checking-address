@@ -114,7 +114,7 @@ func checkBalance(injAddress string, rpcUrl string) bool {
 }
 
 func checkDex(injAddress string, indexerUrl string) []string {
-	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s?limit=50", indexerUrl, injAddress)
+	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s", indexerUrl, injAddress)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -188,9 +188,9 @@ func checkDex(injAddress string, indexerUrl string) []string {
 						break
 					}
 				}
-			}
-			if flagHelix {
-				break
+				if flagHelix {
+					break
+				}
 			}
 		}
 		if flagHelix && flagMito {
