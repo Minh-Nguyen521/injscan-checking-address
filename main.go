@@ -12,6 +12,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const mitoContractAddress = "inj1vcqkkvqs7prqu70dpddfj7kqeqfdz5gg662qs3"
+
 var ListNFT = []string{"quant", "ninja"}
 var ListContractAddress = []string{"inj1vtd54v4jm50etkjepgtnd7lykr79yvvah8gdgw", "inj19ly43dgrr2vce8h02a8nw0qujwhrzm9yv8d75c"}
 
@@ -72,6 +74,74 @@ func checkNft(injAddress string, rpcUrl string) []string {
 	return nft
 }
 
+func checkBalance(injAddress string, rpcUrl string) bool {
+
+	url := fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", rpcUrl, injAddress)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+
+	var response map[string]interface{}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false
+	}
+
+	if len(response["balances"].([]interface{})) > 0 {
+		return true
+	}
+
+	return false
+}
+
+func checkDex(injAddress string, indexerUrl string) []string {
+	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s?limit=1", indexerUrl, injAddress)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return []string{}
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return []string{}
+	}
+
+	var response map[string]interface{}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return []string{}
+	}
+
+	var dex []string
+
+	data := response["data"].([]interface{})
+	for _, item := range data {
+		// check mito contract
+		messages := item.(map[string]interface{})["messages"].([]interface{})
+		value := messages[0].(map[string]interface{})["value"].(map[string]interface{})
+		contractAddress := ""
+		if contractAddr, ok := value["contract_address"]; ok {
+			contractAddress = contractAddr.(string)
+		}
+
+		if contractAddress == mitoContractAddress {
+			dex = append(dex, "mito")
+		}
+	}
+
+	return dex
+}
+
 type SellOrdersResponse struct {
 	Data struct {
 		Orders []struct {
@@ -99,6 +169,12 @@ func main() {
 	rpcUrl := os.Getenv("RPC_URL")
 	if rpcUrl == "" {
 		fmt.Println("RPC_URL not set in .env")
+		os.Exit(1)
+	}
+
+	indexerUrl := os.Getenv("INDEXER_URL")
+	if indexerUrl == "" {
+		fmt.Println("INDEXER_URL not set in .env")
 		os.Exit(1)
 	}
 
@@ -173,20 +249,26 @@ func main() {
 		sellOrders[order.Owner] = append(sellOrders[order.Owner], order.ContractAddress)
 	}
 
+	type Activities struct {
+		NftList []string `json:"nft_list"`
+		Actions []string `json:"actions"`
+	}
+
 	type AddressNFTs struct {
-		Addresses string   `json:"addresses"`
-		NFTs      []string `json:"nfts"`
+		Addresses  string     `json:"addresses"`
+		Activities Activities `json:"activities"`
 	}
 
 	var data []AddressNFTs
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[8:10] {
 		if len(row) < 2 {
 			continue
 		}
 
 		injAddress := row[1]
+		fmt.Println(injAddress)
 
 		listNft := make(map[string]bool)
 		// Check sell orders
@@ -208,15 +290,34 @@ func main() {
 			}
 		}
 
+		activities := Activities{
+			NftList: []string{},
+			Actions: []string{},
+		}
+
 		var nftList []string
 		if len(listNft) > 0 {
 			for nft := range listNft {
 				nftList = append(nftList, nft)
 			}
 
+			activities.NftList = nftList
+		}
+
+		// check balance
+		balance := checkBalance(injAddress, rpcUrl)
+		if balance {
+
+			dex := checkDex(injAddress, indexerUrl)
+			if len(dex) > 0 {
+				activities.Actions = append(activities.Actions)
+			}
+		}
+
+		if len(activities.Actions) > 0 || len(activities.NftList) > 0 {
 			data = append(data, AddressNFTs{
-				Addresses: injAddress,
-				NFTs:      nftList,
+				Addresses:  injAddress,
+				Activities: activities,
 			})
 		}
 
