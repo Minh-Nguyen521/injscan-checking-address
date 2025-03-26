@@ -377,12 +377,8 @@ func main() {
 
 			// check dex
 			flagHelix, flagMito := checkDex(injAddress, indexerUrl)
-			if flagHelix {
-				result.Helix = true
-			}
-			if flagMito {
-				result.Mito = true
-			}
+			result.Helix = flagHelix
+			result.Mito = flagMito
 			result.Addresses = injAddress
 		}
 
