@@ -193,6 +193,9 @@ func checkDex(injAddress string, indexerUrl string) []string {
 				break
 			}
 		}
+		if flagHelix && flagMito {
+			return dex
+		}
 	}
 
 	return dex
