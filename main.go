@@ -158,7 +158,7 @@ func checkDex(injAddress string, indexerUrl string) []string {
 			}
 		}
 
-		// check hexlix's transactions
+		// check helix's transactions
 		logs, ok := item.(map[string]interface{})["logs"].([]interface{})
 		if !ok || len(logs) == 0 {
 			continue
@@ -183,7 +183,7 @@ func checkDex(injAddress string, indexerUrl string) []string {
 						continue
 					}
 					if strings.Contains(eventType, "injective.exchange.v1beta1.") {
-						dex = append(dex, "hexlix")
+						dex = append(dex, "helix")
 						flagHelix = true
 						break
 					}
