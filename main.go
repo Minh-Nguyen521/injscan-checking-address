@@ -327,7 +327,6 @@ func main() {
 		}
 
 		injAddress := row[1]
-		println(injAddress)
 
 		listNft := make(map[string]bool)
 		// Check sell orders
