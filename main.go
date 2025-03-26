@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,30 +76,30 @@ func checkNft(injAddress string, rpcUrl string) []string {
 	return nft
 }
 
-func checkBalance(injAddress string, rpcUrl string) bool {
+func checkBalance(injAddress string, rpcUrl string) int {
 
 	url := fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", rpcUrl, injAddress)
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return false
+		return 0
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return false
+		return 0
 	}
 
 	var response map[string]interface{}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return false
+		return 0
 	}
 
 	balances, ok := response["balances"].([]interface{})
 	if !ok {
-		return false
+		return 0
 	}
 
 	for _, balance := range balances {
@@ -107,38 +108,45 @@ func checkBalance(injAddress string, rpcUrl string) bool {
 			continue
 		}
 		if balanceMap["denom"] == "inj" {
-			return true
+			amount, ok := balanceMap["amount"].(string)
+			if !ok {
+				return 0
+			}
+			amountInt, err := strconv.Atoi(amount)
+			if err != nil {
+				return 0
+			}
+			return amountInt
 		}
 	}
-	return false
+	return 0
 }
 
-func checkDex(injAddress string, indexerUrl string) []string {
+func checkDex(injAddress string, indexerUrl string) (bool, bool) {
 	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s", indexerUrl, injAddress)
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return []string{}
+		return false, false
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return []string{}
+		return false, false
 	}
 
 	var response map[string]interface{}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return []string{}
+		return false, false
 	}
-
-	var dex []string
 
 	data, ok := response["data"].([]interface{})
 	if !ok {
-		return []string{}
+		return false, false
 	}
+
 	var flagHelix bool = false
 	var flagMito bool = false
 
@@ -153,7 +161,6 @@ func checkDex(injAddress string, indexerUrl string) []string {
 			}
 
 			if contractAddress == mitoContractAddress {
-				dex = append(dex, "mito")
 				flagMito = true
 			}
 		}
@@ -183,7 +190,6 @@ func checkDex(injAddress string, indexerUrl string) []string {
 						continue
 					}
 					if strings.Contains(eventType, "injective.exchange.v1beta1.") {
-						dex = append(dex, "helix")
 						flagHelix = true
 						break
 					}
@@ -194,11 +200,11 @@ func checkDex(injAddress string, indexerUrl string) []string {
 			}
 		}
 		if flagHelix && flagMito {
-			return dex
+			return true, true
 		}
 	}
 
-	return dex
+	return flagHelix, flagMito
 }
 
 type SellOrdersResponse struct {
@@ -308,14 +314,12 @@ func main() {
 		sellOrders[order.Owner] = append(sellOrders[order.Owner], order.ContractAddress)
 	}
 
-	type Activities struct {
-		NftList []string `json:"nft_list"`
-		Actions []string `json:"actions"`
-	}
-
 	type AddressNFTs struct {
-		Addresses  string     `json:"addresses"`
-		Activities Activities `json:"activities"`
+		Addresses  string   `json:"addresses"`
+		InjBalance int      `json:"inj_balance"`
+		Nft        []string `json:"nft"`
+		Helix      bool     `json:"helix"`
+		Mito       bool     `json:"mito"`
 	}
 
 	var data []AddressNFTs
@@ -348,9 +352,12 @@ func main() {
 			}
 		}
 
-		activities := Activities{
-			NftList: []string{},
-			Actions: []string{},
+		result := AddressNFTs{
+			Addresses:  injAddress,
+			InjBalance: 0,
+			Nft:        []string{},
+			Helix:      false,
+			Mito:       false,
 		}
 
 		var nftList []string
@@ -359,20 +366,28 @@ func main() {
 				nftList = append(nftList, nft)
 			}
 
-			activities.NftList = nftList
+			result.Nft = nftList
+			result.Addresses = injAddress
 		}
 
 		// check balance
 		balance := checkBalance(injAddress, rpcUrl)
-		if balance {
-			activities.Actions = checkDex(injAddress, indexerUrl)
+		if balance > 0 {
+			result.InjBalance = balance
+
+			// check dex
+			flagHelix, flagMito := checkDex(injAddress, indexerUrl)
+			if flagHelix {
+				result.Helix = true
+			}
+			if flagMito {
+				result.Mito = true
+			}
+			result.Addresses = injAddress
 		}
 
-		if len(activities.Actions) > 0 || len(activities.NftList) > 0 {
-			data = append(data, AddressNFTs{
-				Addresses:  injAddress,
-				Activities: activities,
-			})
+		if len(result.Nft) > 0 || result.Helix || result.Mito {
+			data = append(data, result)
 		}
 
 		if i%5 == 0 {
