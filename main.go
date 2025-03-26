@@ -317,7 +317,7 @@ func main() {
 	type AddressNFTs struct {
 		Addresses  string   `json:"addresses"`
 		InjBalance int      `json:"inj_balance"`
-		Nft        []string `json:"nft"`
+		Nfts       []string `json:"nfts"`
 		Helix      bool     `json:"helix"`
 		Mito       bool     `json:"mito"`
 	}
@@ -325,7 +325,7 @@ func main() {
 	var data []AddressNFTs
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[1:20] {
 		if len(row) < 2 {
 			continue
 		}
@@ -355,7 +355,7 @@ func main() {
 		result := AddressNFTs{
 			Addresses:  injAddress,
 			InjBalance: 0,
-			Nft:        []string{},
+			Nfts:       []string{},
 			Helix:      false,
 			Mito:       false,
 		}
@@ -366,7 +366,7 @@ func main() {
 				nftList = append(nftList, nft)
 			}
 
-			result.Nft = nftList
+			result.Nfts = nftList
 			result.Addresses = injAddress
 		}
 
@@ -386,7 +386,7 @@ func main() {
 			result.Addresses = injAddress
 		}
 
-		if len(result.Nft) > 0 || result.Helix || result.Mito {
+		if len(result.Nfts) > 0 || result.Helix || result.Mito {
 			data = append(data, result)
 		}
 
