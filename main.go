@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -95,15 +96,25 @@ func checkBalance(injAddress string, rpcUrl string) bool {
 		return false
 	}
 
-	if len(response["balances"].([]interface{})) > 0 {
-		return true
+	balances, ok := response["balances"].([]interface{})
+	if !ok {
+		return false
 	}
 
+	for _, balance := range balances {
+		balanceMap, ok := balance.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if balanceMap["denom"] == "inj" {
+			return true
+		}
+	}
 	return false
 }
 
 func checkDex(injAddress string, indexerUrl string) []string {
-	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s?limit=1", indexerUrl, injAddress)
+	url := fmt.Sprintf("%s/api/explorer/v1/accountTxs/%s?limit=50", indexerUrl, injAddress)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -124,18 +135,63 @@ func checkDex(injAddress string, indexerUrl string) []string {
 
 	var dex []string
 
-	data := response["data"].([]interface{})
+	data, ok := response["data"].([]interface{})
+	if !ok {
+		return []string{}
+	}
+	var flagHelix bool = false
+	var flagMito bool = false
+
 	for _, item := range data {
 		// check mito contract
-		messages := item.(map[string]interface{})["messages"].([]interface{})
-		value := messages[0].(map[string]interface{})["value"].(map[string]interface{})
-		contractAddress := ""
-		if contractAddr, ok := value["contract_address"]; ok {
-			contractAddress = contractAddr.(string)
+		if !flagMito {
+			messages := item.(map[string]interface{})["messages"].([]interface{})
+			value := messages[0].(map[string]interface{})["value"].(map[string]interface{})
+			contractAddress := ""
+			if contractAddr, ok := value["contract_address"]; ok {
+				contractAddress = contractAddr.(string)
+			}
+
+			if contractAddress == mitoContractAddress {
+				dex = append(dex, "mito")
+				flagMito = true
+			}
 		}
 
-		if contractAddress == mitoContractAddress {
-			dex = append(dex, "mito")
+		// check hexlix's transactions
+		logs, ok := item.(map[string]interface{})["logs"].([]interface{})
+		if !ok || len(logs) == 0 {
+			continue
+		}
+		if !flagHelix {
+			for _, log := range logs {
+				logMap, ok := log.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				eventMap, ok := logMap["events"].([]interface{})
+				if !ok || len(eventMap) == 0 {
+					continue
+				}
+				for _, event := range eventMap {
+					eventMap, ok := event.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					eventType, ok := eventMap["type"].(string)
+					if !ok {
+						continue
+					}
+					if strings.Contains(eventType, "injective.exchange.v1beta1.") {
+						dex = append(dex, "hexlix")
+						flagHelix = true
+						break
+					}
+				}
+			}
+			if flagHelix {
+				break
+			}
 		}
 	}
 
@@ -262,13 +318,13 @@ func main() {
 	var data []AddressNFTs
 
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[8:10] {
+	for i, row := range sheetData.Values[1:] {
 		if len(row) < 2 {
 			continue
 		}
 
 		injAddress := row[1]
-		fmt.Println(injAddress)
+		println(injAddress)
 
 		listNft := make(map[string]bool)
 		// Check sell orders
@@ -307,11 +363,7 @@ func main() {
 		// check balance
 		balance := checkBalance(injAddress, rpcUrl)
 		if balance {
-
-			dex := checkDex(injAddress, indexerUrl)
-			if len(dex) > 0 {
-				activities.Actions = append(activities.Actions)
-			}
+			activities.Actions = checkDex(injAddress, indexerUrl)
 		}
 
 		if len(activities.Actions) > 0 || len(activities.NftList) > 0 {
