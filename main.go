@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,30 +75,30 @@ func checkNft(injAddress string, rpcUrl string) []string {
 	return nft
 }
 
-func checkBalance(injAddress string, rpcUrl string) int {
+func checkBalance(injAddress string, rpcUrl string) string {
 
 	url := fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s", rpcUrl, injAddress)
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return 0
+		return ""
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return 0
+		return ""
 	}
 
 	var response map[string]interface{}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return 0
+		return ""
 	}
 
 	balances, ok := response["balances"].([]interface{})
 	if !ok {
-		return 0
+		return ""
 	}
 
 	for _, balance := range balances {
@@ -107,19 +106,16 @@ func checkBalance(injAddress string, rpcUrl string) int {
 		if !ok {
 			continue
 		}
-		if balanceMap["denom"] == "inj" {
+		denom := balanceMap["denom"].(string)
+		if denom == "inj" {
 			amount, ok := balanceMap["amount"].(string)
 			if !ok {
-				return 0
+				return ""
 			}
-			amountInt, err := strconv.Atoi(amount)
-			if err != nil {
-				return 0
-			}
-			return amountInt
+			return amount
 		}
 	}
-	return 0
+	return ""
 }
 
 func checkDex(injAddress string, indexerUrl string) (bool, bool) {
@@ -147,6 +143,10 @@ func checkDex(injAddress string, indexerUrl string) (bool, bool) {
 		return false, false
 	}
 
+	if len(data) == 0 {
+		return false, false
+	}
+
 	var flagHelix bool = false
 	var flagMito bool = false
 
@@ -154,7 +154,19 @@ func checkDex(injAddress string, indexerUrl string) (bool, bool) {
 		// check mito contract
 		if !flagMito {
 			messages := item.(map[string]interface{})["messages"].([]interface{})
-			value := messages[0].(map[string]interface{})["value"].(map[string]interface{})
+			if len(messages) == 0 {
+				continue
+			}
+
+			message, ok := messages[0].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			value := message["value"].(map[string]interface{})
+			if len(value) == 0 {
+				continue
+			}
+
 			contractAddress := ""
 			if contractAddr, ok := value["contract_address"]; ok {
 				contractAddress = contractAddr.(string)
@@ -316,16 +328,16 @@ func main() {
 
 	type AddressNFTs struct {
 		Addresses  string   `json:"addresses"`
-		InjBalance int      `json:"inj_balance"`
+		InjBalance string   `json:"inj_balance"`
 		Nfts       []string `json:"nfts"`
 		Helix      bool     `json:"helix"`
 		Mito       bool     `json:"mito"`
 	}
 
-	var data []AddressNFTs
-
+	current := 0
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[1:] {
+	for i, row := range sheetData.Values[5:] {
+		current++
 		if len(row) < 2 {
 			continue
 		}
@@ -354,7 +366,7 @@ func main() {
 
 		result := AddressNFTs{
 			Addresses:  injAddress,
-			InjBalance: 0,
+			InjBalance: "",
 			Nfts:       []string{},
 			Helix:      false,
 			Mito:       false,
@@ -372,7 +384,7 @@ func main() {
 
 		// check balance
 		balance := checkBalance(injAddress, rpcUrl)
-		if balance > 0 {
+		if balance != "" {
 			result.InjBalance = balance
 
 			// check dex
@@ -383,21 +395,19 @@ func main() {
 		}
 
 		if len(result.Nfts) > 0 || result.Helix || result.Mito {
-			data = append(data, result)
+			encoder := json.NewEncoder(f)
+			encoder.SetIndent("", "    ")
+			if err := encoder.Encode(result); err != nil {
+				fmt.Printf("Error writing results: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
-		if i%5 == 0 {
+		if i%20 == 0 {
 			time.Sleep(time.Second)
 		}
-	}
 
-	// Write results to file
-	encoder := json.NewEncoder(f)
-	encoder.SetIndent("", "    ")
-	if err := encoder.Encode(data); err != nil {
-		fmt.Printf("Error writing results: %v\n", err)
-		os.Exit(1)
+		fmt.Println(injAddress, current)
 	}
-
 	fmt.Println("Done")
 }
