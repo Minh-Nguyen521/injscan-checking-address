@@ -336,7 +336,7 @@ func main() {
 
 	current := 0
 	fmt.Println("Scanning nft and sell orders...")
-	for i, row := range sheetData.Values[5:] {
+	for i, row := range sheetData.Values[1584:] {
 		current++
 		if len(row) < 2 {
 			continue
